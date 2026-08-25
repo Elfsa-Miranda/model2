@@ -1,0 +1,100 @@
+# 跨模态动量对比学习配置文件
+# Cross-modal Momentum Contrastive Learning for CSI-only HAR
+
+# 数据集配置
+dataset:
+  root: "/path/to/MMFi_Dataset"  # Set this to the local MMFi dataset root
+  split: "8:2"  # 训练集:验证集比例 ("7:3" 或 "8:2") - 导师要求 8:2
+  protocol: "protocol2"  # "protocol1" (daily) 或 "protocol2" (rehabilitation)
+  data_unit: "sequence"  # "sequence" 或 "frame"
+  smooth_kernel_size: 3  # CSI 时间平滑核大小
+  num_subcarriers: 114  # CSI 子载波数量 (根据实际数据调整)
+  num_antennas: 3  # CSI 天线数量
+  num_joints: 17  # 骨架关节数量
+
+# CSI 增强配置（DeepCRF 风格，保持动作语义）
+augmentation:
+  snr_range: [20, 40]  # 高斯噪声 SNR 范围 (dB)
+  time_jitter_ratio: 0.1  # 时间轴 jitter 比例 (±10%)
+  time_mask_ratio: 0.15  # 时间遮挡比例
+  subcarrier_mask_ratio: 0.1  # 子载波遮挡比例
+  amplitude_scale_range: [0.9, 1.1]  # 幅值缩放范围
+  apply_prob: 0.8  # 增强应用概率
+
+# 模型配置
+model:
+  # CSI 编码器（双流架构）
+  csi:
+    channel_dim: 128  # Channel Stream 输出维度
+    temporal_dim: 128  # Temporal Stream 输出维度
+    fusion_dim: 256  # 融合后特征维度
+  
+  # RGB 编码器（与 CSI 结构对齐）
+  rgb:
+    spatial_dim: 128  # Spatial Stream 输出维度
+    temporal_dim: 128  # Temporal Stream 输出维度
+    fusion_dim: 256  # 融合后特征维度
+  
+  # 头部模块
+  projector_dim: 128  # 投影空间维度
+  classifier_hidden: 256  # 分类器隐藏层维度
+  regressor_hidden: 256  # 回归器隐藏层维度
+
+# 训练配置
+training:
+  batch_size: 64  # 批次大小（OOM 时降至 32）
+  val_batch_size: 32  # 验证批次大小
+  epochs: 100  # 训练轮数
+  
+  # 优化器
+  optimizer: "AdamW"
+  lr: 1e-4  # 编码器学习率
+  weight_decay: 1e-4
+  
+  # 学习率调度
+  warmup_epochs: 5  # 预热轮数
+  scheduler: "cosine"  # 调度器类型
+  
+  # 损失权重（可根据 TensorBoard 监控调整）
+  lambda_con: 1.0  # 对比损失权重
+  lambda_cls: 1.0  # 分类损失权重
+  lambda_reg: 0.3  # 回归损失权重（降低以避免主导优化，建议 0.1-0.5）
+  
+  # 回归损失类型
+  regression_loss_type: "smooth_l1"  # "mse", "l1", "smooth_l1", "huber"
+  
+  # 动量对比学习
+  ema_m: 0.999  # EMA 动量因子
+  queue_size: 4096  # 内存队列大小
+  temperature: 0.07  # 对比学习温度参数
+  
+  # 正则化
+  dropout: 0.3  # Dropout 比例（0 表示不使用）
+  label_smoothing: 0.0  # 标签平滑（0 表示不使用，建议 0.1）
+  
+  # 早停（Early Stopping）
+  early_stopping:
+    enabled: true  # 是否启用早停
+    patience: 20  # 验证损失不下降的容忍轮数
+    min_delta: 0.001  # 最小改进阈值
+    monitor: "val_acc"  # 监控指标："val_loss" 或 "val_acc"
+
+# 其他配置
+random_seed: 0  # 随机种子
+num_workers: 4  # 数据加载工作进程数
+output_folder: "./checkpoints"  # 模型保存目录
+log_dir: "./logs"  # 日志目录
+
+# Checkpoint 保存配置
+checkpoint:
+  save_best: true  # 是否保存最佳模型
+  save_final: true  # 是否保存最终模型
+  save_interval: 10  # 定期保存间隔（每 N 个 epoch 保存一次，0 表示不定期保存）
+
+# 推理配置（重要约束）
+inference:
+  # 【禁止项】推理时不使用以下组件
+  use_rgb: false  # 禁止使用 RGB
+  use_queue: false  # 禁止使用队列
+  use_regressor: false  # 禁止使用回归头
+  use_projector: false  # 禁止使用投影头
